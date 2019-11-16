@@ -1,0 +1,133 @@
+---
+title: "Online Dating"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+TEAM NAME: coccinelle 
+
+
+TEAM MEMBERS: Carlotta Zatti (carlotta zatti), Federica Zattini (FZattini)
+
+
+
+
+
+
+L'obiettivo dell'analisi è prevedere se la professione di una persona è STEM (science, technology, engineering, and math) o no. Il metodo usato per la valutazione della performance dei modelli è l'AUC (Area under the ROC curve). 
+Il training set include 6000 utenti, di cui 1095 sono nell'ambito STEM. Si riscontra un problema limitato di class imbalance: il 18.25% di profili sono STEM. Il test set è composto da 4000 osservazioni.
+
+I dati originali contengono variabili di diversa natura:
+
+* 1 numerica (`essay_length`), 3 interi (`height`,`age`,`last_online`), 17 categoriali, 87 dummies
+* Il numero delle categorie spazia da 51 (`where_town`) a 3 (`orientation`)
+* I missing sono presenti nelle variabili categoriali come modalità: es. `drinks` ha livello `drinks_missing`
+* In alcuni casi delle categorie presenti nel test set non sono incluse nel training set, per questo analizziamo il dataset come combinazione dei due.
+
+A seguito delle analisi le variabili da 108 sono diventate 95, così suddivise:
+
+* 1 numerica (`essay_length`), 2 interi (`height`,`age`), 22 categoriali, 70 dummies
+
+Dato il grande numero di variabili categoriali, consideriamo gli alberi di classificazione perché: 
+
+* sanno gestire predittori sia numerici che categoriali
+* possono usare le variabili categoriali nella loro forma naturale (senza conversioni in dummy)
+* sanno gestire i valori mancanti
+* feature selection intrinseca nel processo così come le interazioni tra predittori
+
+Il modello utilizzato per la previsione finale è il Random Forest per stabilizzare gli alberi.
+
+
+
+*Summary of the modelling process:*
+
+
+
+1. *Preprocessing* <br>
+
+Nelle variabili `age`, `height` e `essay_length` sono presenti degli outliers. Per questo motivo si è deciso di sostituire dei valori in corrispondenza di 4 osservazioni:
+
+* 1258: `height`pari a 26
+* 3184: `age` 95 e `height` 25 
+* 5201: `height` pari a 4
+* 5676: `height` pari a 3
+
+Per quanto riguarda le osservazioni 1258, 5201 e 5676, dove i valori anomali sono tutti in corrispondenza di `height`, si è deciso di condizionarsi alla variabile `age` e calcolare la mediana, misura più robusta data la distribuzione asimmetrica di `height`.
+Per sistemare l'osservazione 3184 si è scelto di condizionarsi alla variabile `body_type` ed `education` al fine di correggere i valori `height` e `age`.
+
+2. *Missing values* <br>
+
+I missing sono presenti solo nelle variabili categoriali sottoforma di modalità e per questo motivo sono stati trattati come tali.
+
+3. *Feature engineering* <br>
+
+* Le modalità della variabile `education` sono diminuite da 33 a 17 per compattare le aree di interesse degli utenti
+* Il predittore `income` è passato inizialmente da categoriale a numerico e successivamente è tornato categoriale con 3 modalità: `alto`, `basso` e `mancante`. La ripartizione è definita in modo da suddividere le categorie `alto` e `basso` in intervalli di ampiezza quasi simile (da 20000 fino a 50000 `basso`, da 50000 fino a 1000000 `alto`), mentre `mancante` individua tutti i missing.
+* La variabile `last_online`  da intera è diventata categoriale con 2 modalità: `frequenti` e `meno_frequenti`. La suddivisione è generata sulla base della mediana, così da separare equamente gli utenti.
+* Le categorie del predittore `smokes` sono diminuite da 6 a 3: `fumo`, `non fumo` e `missing`. 
+* Le modalità della variabile `status` sono diminuite da 5 a 3: `single`, `occupato` e `missing`.
+* Le dummies `cpp`, `cpp_fluently`, `cpp_okay` e `cpp_poorly` sono accorpate sotto un'unica variabile categoriale `cono_cpp` con 3 modalità `poca`,`buona`,`fluente` per indicare la conoscenza del programma cpp.
+* Le dummies `lisp`, `lisp_fluently`, `lisp_okay` e `lisp_poorly` sono accorpate sotto un'unica variabile categoriale `cono_lisp` con 3 modalità: `poca`,`buona`,`fluente` per indicare la conoscenza del programma lisp.
+* Per creare un'interazione tra i due programmi cpp e lisp si è creata una variabile `cpp_and_lisp` con 3 categorie: `entrambi`, `almeno uno` e `nessuno`. Questa ripartizione serve per stabilire se gli utenti conoscono entrambi i programmi, ne conoscono almeno uno dei due o nessuno. 
+* Le dummies `asian`, `black`, `indian`, `ispanic_latin`, `middle-eastern`, `native_american`, `other`, `pacific_islander`e `white` sono accorpate sotto un'unica variabile categoriale `etnie` con 9 modalità. 
+
+4. *Feature selection* <br>
+
+Feature selection implementata automaticamente all'interno degli alberi.
+
+5. *Final model* <br>
+
+Il modello finale è un RandomForest ed è implementato dalla funzione train della libreria `caret` con `method = "rf"`, `metric = "ROC"` e `trControl = ctrl`. Ctrl è il risultato della funzione `trainControl` con `method = "cv"`, `number = 10`, `classProbs = TRUE`, `summaryFunction = twoClassSummary`. 
+Dato che la risposta ha un problema di class imbalance, si è deciso di utilizzare un campionamento `down`. Questo metodo consiste nell'escludere delle righe nel training per equilibrare le classi.
+
+6. *Model tuning and evaluation* <br>
+
+Si è scelto il parametro `m` attraverso K-fold Cross Validation con K pari a 10. È stato selezionato m=2 poiché ha associato il valore più alto della ROC.
+
+7. *R packages* <br>
+
+`caret`
+
+8. *References* <br>
+
+Il libro [Feature Engineering and Selection](http://www.feat.engineering/index.html). In particolare le sezioni: 5 per la codifica delle variabili categoriali, 8.2 e 8.4 per i missing.
+
+
+```{r startup, include = FALSE, message = FALSE, warning = FALSE}
+
+knitr::opts_chunk$set(echo = T, eval=F, message=F, warning=F, error=F, comment = NA, cache=F, R.options=list(width=220))
+
+```
+
+
+
+**R code to reproduce the last submission**
+
+
+
+```{r}
+rm(list=ls())
+library(caret)
+combi=read.csv("H:/CompetizioniDM/combi.csv")
+n = 6000
+m = 4000
+train = combi[1:n,]
+test = combi[(n+1):(n+m),]
+ctrl=trainControl(method = "cv",
+                  number = 10,
+                  classProbs = TRUE,
+                  summaryFunction = twoClassSummary)
+ctrl$sampling <- "down"
+set.seed(123)
+fit.down<- train(Class ~ ., data = train, 
+                      method = "rf",
+                      metric = "ROC",
+                      trControl = ctrl)
+phat.down = predict(fit.down, newdata=test,  type = "prob")[,"stem",drop=F]
+head(phat.down)
+```
+
