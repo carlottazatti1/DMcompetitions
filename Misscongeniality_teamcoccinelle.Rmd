@@ -1,0 +1,288 @@
+---
+title: "Miss Congeniality"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+TEAM NAME: coccinelle 
+
+
+TEAM MEMBERS: Carlotta Zatti (carlotta zatti), Federica Zattini (FZattini)
+
+
+
+L'obiettivo dell'analisi è prevedere la valutazione (1-5) degli utenti riferita al film Miss Congeniality.
+Il metodo usato per la valutazione della performance dei modelli è RMSE (root mean square error). 
+Il training set include 10000 utenti, mentre il test set ne contiene 2931.
+
+I dati originali sono suddivisi su tre file diversi e contengono informazioni riguardo a 99 film:
+
+* i punteggi dati ad ogni film sono interi su scala 1-5
+* la data della valutazione corrisponde al numero di giorni dal primo gennaio 1997
+* l'anno di uscita del film. 
+
+I primi 14 film non hanno valori mancanti, mentre i restanti 85 ne possiedono diversi: i missing rappresentano il 15.4% dell'intero dataset.
+
+A seguito delle analisi le variabili sono diventate 189:
+
+* 161 numeriche , 28 dummies
+
+Data la distribuzione della variabile risposta si è pensato di analizzarla con la regressione, in particolare per le previsioni finali è stata utilizzata la regressione ridge per tenere sotto controllo la variabilità presente nei dati. 
+
+
+*Summary of the modelling process:*
+
+
+1. *Preprocessing* <br>
+
+Le analisi sono partite dal dataset riguardante i punteggi degli utenti.
+Si è proceduto eliminando tre variabili (`Lord of the Rings: The Return of the King`,`Lord of the Rings: The Two Towers`, `Kill Bill: Vol. 1`) le prime due molto correlate con `Lord of the Rings: The Fellowship of the Ring` e la terza con `Kill Bill: Vol. 2`.
+La scelta di mantenere le ultime due sopra citate è fatta tenendo in considerazione il legame di ciascuna con la risposta `Miss Congeniality`. 
+
+
+2. *Missing values* <br>
+
+Data la ampia presenza di valori mancanti all'interno del dataset, per la loro gestione si è pensato di costruire un modello lineare semplice.
+La risposta è rappresentata dalla media delle valutazioni dell'utente (effetto individuale), il predittore corrisponde alla valutazione del film, per il quale l'utente in analisi registra valore mancante, degli utenti (effetto film). 
+Come dati di train si sono usati i valori per i quali la valutazione al film considerato era presente, mentre per il test le osservazioni per cui il dato era mancante. 
+In questo modo le previsioni ottenute hanno sostituito i missing, si è fatto ciò per ciascun utente e in corrispondenza di ciascun film (tra gli 85). 
+
+3. *Feature engineering* <br>
+
+* Si sono aggiunte ai dati riguardanti i punteggi di tutti i film le variabili dummies (solo per i film tra gli 85) per tener traccia dei valori mancanti. Esse assumono valore 1 in assenza di NA e 0 altrimenti. 
+* Per dar maggior peso ai veri punteggi dati dagli utenti, sono state inserite le interazioni tra film e dummies.  
+* Altre variabili create sono:
+
+     - media, mediana, moda e varianza relative ai dati originali (non sono stati considerati i missing values)
+     - percentuale di valutazioni date lo stesso giorno di Miss Congeniality  (`perc_Miss`)
+     - percentuale di missing per utente (`perc_missing`)
+     - numero di valutazioni pari a 1, 2, 3, 4, 5 (`val_uno`,`val_due`,`val_tre`,`val_quattro`,`val_cinque`)
+     - media delle valutazioni per utente pesata per le percentuali di missing associate ad ogni film (`media_pesatamissing`)
+     - differenza al quadrato della media delle valutazioni meno la media calcolata senza considerare i valori mancanti (`differenza_med2`)
+     - interazioni (`moda*perc_missing`,`differenza_med2*perc_missing`,`var_utenti_narmT*perc_missing`)
+
+
+4. *Feature selection* <br>
+
+Dato il legame tra dummies e interazioni dummies-film si è pensato di mantenere una delle due informazioni per ogni film sempre considerando quella maggiormente correlata con la risposta. 
+Successivamente si sono escluse dall'analisi altre quattro informazioni  (`Saving Private Ryan`,`Memento`,`Napoleon Dynamite`,`S.W.A.T. dummy`) poiché hanno correlazione con la risposta inferiore a 0.018. 
+
+
+5. *Final model* <br>
+
+Regressione ridge ottenuta con la funzione `glmnet` ponendo valore alfa pari a 0. 
+
+
+6. *Model tuning and evaluation* <br>
+
+Si è scelto il parametro lambda di shrinkage attraverso K-fold Cross Validation con K pari a 5. 
+
+
+7. *R packages* <br>
+
+`glmnet`
+
+
+
+8. *References* <br>
+
+Il libro [Feature Engineering and Selection](http://www.feat.engineering/index.html). In particolare le sezioni 8.2 e 8.4 per la gestione dei dati missing.
+
+
+```{r startup, include = FALSE, message = FALSE, warning = FALSE}
+
+knitr::opts_chunk$set(echo = T, eval=F, message=F, warning=F, error=F, comment = NA, cache=F, R.options=list(width=220))
+
+```
+
+**R code to reproduce the last submission**
+
+
+
+```{r}
+rm(list=ls())
+train_ratings_all <- read.table("http://bee-fore.s3-eu-west-1.amazonaws.com/datasets/104.dat", header=FALSE, sep="\t")
+train_y_rating <- read.table("http://bee-fore.s3-eu-west-1.amazonaws.com/datasets/108.dat", header=FALSE, sep="\t")
+test_ratings_all <- read.table("http://bee-fore.s3-eu-west-1.amazonaws.com/datasets/105.dat", header=FALSE, sep="\t")
+movie_titles <- read.table("http://bee-fore.s3-eu-west-1.amazonaws.com/datasets/111.txt", header=FALSE, sep=",")
+train_dates_all <- read.table("http://bee-fore.s3-eu-west-1.amazonaws.com/datasets/106.dat", header=FALSE, sep="\t")
+test_dates_all <- read.table("http://bee-fore.s3-eu-west-1.amazonaws.com/datasets/107.dat", header=FALSE, sep="\t")
+train_y_date <- read.table("http://bee-fore.s3-eu-west-1.amazonaws.com/datasets/109.dat", header=FALSE, sep="\t")
+test_y_date <- read.table("http://bee-fore.s3-eu-west-1.amazonaws.com/datasets/110.dat", header=FALSE, sep="\t")
+
+X.tr = train_ratings_all
+y.tr = train_y_rating
+train = data.frame (X.tr, y=y.tr$V1)
+X.te = test_ratings_all
+test = data.frame (X.te)
+
+titoli=as.matrix(movie_titles[,2])
+titoli_t=t(titoli)
+titoli_fin=cbind(titoli_t,"Miss Congeniality")
+colnames(train)=as.vector(titoli_fin)
+test$V100=NA
+colnames(test)=as.vector(titoli_fin)
+train2=train
+test2=test
+punteggi2=rbind(train2,test2)
+colnames(punteggi2)=paste(colnames(punteggi2),"interazdummy")
+punteggi=rbind(train,test)
+n=nrow(train)
+m=nrow(test)
+train=punteggi[1:n,]
+test=punteggi[(n+1):(n+m),]
+
+train_dates = data.frame (train_dates_all, train_y_date)
+test_dates = data.frame (test_dates_all, test_y_date)
+colnames(train_dates)=as.vector(titoli_fin)
+colnames(test_dates)=as.vector(titoli_fin)
+date=rbind(train_dates,test_dates)
+
+f=1:100
+for (i in f){
+  punteggi[,i]=ifelse(punteggi[,i]==0,NA,punteggi[,i])
+  date[,i]=ifelse(date[,i]==0,NA,date[,i])
+}
+
+perc_film=apply(punteggi[,-100],2,function(x) mean(is.na(x))*100)
+mediana_narmT=apply(punteggi[,-100],1,median,na.rm=T)
+medie_utenti=apply(punteggi[,-100],1,mean,na.rm=T)
+var_utenti=apply(punteggi[,-100],1,var,na.rm=T)
+punteggi$media_utenti_narmT=medie_utenti
+punteggi$var_utenti_narmT=var_utenti
+punteggi$mediana_utenti_narmT=mediana_narmT
+for (r in 15:99){
+  if (sum(is.na(punteggi[,r]))!=0){
+    pos=which(is.na(punteggi[,r]))
+    tr=punteggi[-pos,c(r,101)]
+    predittore=tr[,2]
+    risposta=tr[,1]
+    fit=lm(risposta~predittore,data=tr)
+    tt=punteggi[pos,c(r,101)]
+    predittore=tt[,2]
+    risposta=tt[,1]
+    prev=predict(fit, newdata=tt)
+    punteggi[pos,r]=prev
+  } 
+} 
+
+nvoti_giornomiss=vector()
+for (i in 1:12931){
+  g=length(which(date[i,-100]==date[i,100]))
+  nvoti_giornomiss[i]=g
+}
+
+
+var_dummy=matrix(nrow=12931,ncol=99)
+for (r in 1:99){
+  dum=vector()
+  for (i in 1:12931){
+    bin=ifelse(is.na(date[i,r]), 0,1)
+    dum[i]=bin
+  }
+  var_dummy[,r]=t(dum)
+}
+colnames(var_dummy)=paste(colnames(punteggi)[1:99],"dummy", sep=".")
+
+mediautenti=apply(punteggi[,c(1:99)],1,mean)
+
+
+funzione=function(x) 99-sum(x==0)
+valutazioni=vector()
+for (i in 1:12931){
+  p=funzione(punteggi2[i,-100])
+  valutazioni[i]=p
+}
+
+perc_Miss=nvoti_giornomiss/valutazioni
+perc_missing=(99-valutazioni)/99
+val_uno=vector()
+val_due=vector()
+val_tre=vector()
+val_quattro=vector()
+val_cinque=vector()
+for (i in 1:12931){
+  val_uno[i]=sum(ifelse(punteggi2[i,-100]==1,1,0))
+  val_due[i]=sum(ifelse(punteggi2[i,-100]==2,1,0))
+  val_tre[i]=sum(ifelse(punteggi2[i,-100]==3,1,0))
+  val_quattro[i]=sum(ifelse(punteggi2[i,-100]==4,1,0))
+  val_cinque[i]=sum(ifelse(punteggi2[i,-100]==5,1,0))
+}
+
+moda=vector()
+for (i in 1:12931){
+  mod=which.max(cbind(val_uno,val_due,val_tre,val_quattro,val_cinque)[i,])
+  moda[i]=mod
+}
+differenza_med2=(mediautenti-punteggi$media_utenti_narmT)^2
+
+pesi=1-perc_film
+media_pesatamissing=vector()
+for (i in 1:12931){
+  po=weighted.mean(punteggi[i,c(1:99)],pesi)
+  media_pesatamissing[i]=po
+}
+
+mat_cor=cor(punteggi[,-100])
+mat_cor=as.data.frame((mat_cor))
+which(abs(mat_cor)<1 & abs(mat_cor)>=0.6) 
+n=10000
+m=2931
+train=punteggi[1:n,]
+test=punteggi[(n+1):(n+m),] 
+
+cor(train$`Miss Congeniality`,train$`Lord of the Rings: The Fellowship of the Ring`)
+cor(train$`Miss Congeniality`,train$`Lord of the Rings: The Return of the King`)
+cor(train$`Miss Congeniality`,train$`Lord of the Rings: The Two Towers`)
+cor(train$`Miss Congeniality`,train$`Kill Bill: Vol. 1`)
+cor(train$`Miss Congeniality`,train$`Kill Bill: Vol. 2`)
+
+punteggi=punteggi[,-c(29,48,62)] 
+punteggi=cbind(punteggi,var_dummy[,c(15:28,30:47,49:61,63:99)])
+
+punteggi=cbind(punteggi,punteggi2[,c(15:28,30:47,49:61,63:99)])
+tr=cor(punteggi[,-97])
+which(abs(tr)<1 & abs(tr)>=0.6)  
+tr=as.data.frame(tr)
+corr_dummy=vector()
+for (i in 100:181){
+  c=tr[i,i+82]
+  corr_dummy[i]=c
+}
+
+punteggi=punteggi[,-c(264,181,262,179,260,259,176,175,256,173,254,171,170,169,250,167,166,247,164,245,244,161,
+                                  160,159,240,157,156,237,154,153,152,233,150,231,148,147,146,145,144,143,224,223,140,
+                                  139,220,219,136,135,216,133,214,131,212,129,128,209,126,207,118,119,120,121,122,123,124,
+                                  101,105,106,107,108,109,110,111,112,113,114,115,186,185,184,198,199)]
+punteggi=cbind(punteggi,perc_Miss,perc_missing,val_uno,val_due,val_tre,val_quattro,val_cinque,moda,differenza_med2,media_pesatamissing)
+n=10000
+m=2931
+train=punteggi[1:n,]
+test=punteggi[(n+1):(n+m),]
+
+c=which(abs(cor(train$`Miss Congeniality`,train[,-97]))<0.018)
+punteggi=punteggi[,-(c)]
+
+punteggi=cbind(punteggi,punteggi$moda*punteggi$perc_missing,punteggi$differenza_med2*punteggi$perc_missing,
+                punteggi$var_utenti_narmT*punteggi$perc_missing)
+punteggi[,1:190]=sapply(1:190, function(i) as.numeric(punteggi[,i]))
+colnames(punteggi)[c(188,189,190)]=c("moda*perc_missing","differenza_med2*perc_missing","var_utenti_narmT*perc_missing")
+n=10000
+m=2931
+train=punteggi[1:n,]
+test=punteggi[(n+1):(n+m),]
+
+library(glmnet)
+X = as.matrix(train[,-94])
+X.star=as.matrix(test[,-94])
+fit.ridge <- glmnet(X, train$`Miss Congeniality`, alpha=0)
+set.seed(123)
+K <- 5
+fit.cv <-cv.glmnet(X,train$`Miss Congeniality`, alpha=0, nfolds = K, grouped=FALSE) 
+yhat.ridge = predict(fit.ridge, s=fit.cv$lambda.min, newx=X.star, exact=TRUE)
+head(yhat.ridge)
+```
